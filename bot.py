@@ -1,5 +1,6 @@
 import os
-import re
+import pandas as pd
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -22,15 +23,13 @@ user_colors = {}
 # ---------- COLOR HELPERS ----------
 
 def hex_to_rgb(hex_color):
-    hex_color = hex_color.replace("#", "")
-    return tuple(int(hex_color[i:i+2], 16) for i in (0,2,4))
-
+    hex_color = hex_color.replace("#","")
+    return tuple(int(hex_color[i:i+2],16) for i in (0,2,4))
 
 def rgb_to_hex(rgb):
     return "%02x%02x%02x" % rgb
 
-
-def lighten_color(hex_color, factor=0.2):
+def lighten(hex_color, factor=0.2):
 
     r,g,b = hex_to_rgb(hex_color)
 
@@ -40,8 +39,7 @@ def lighten_color(hex_color, factor=0.2):
 
     return rgb_to_hex((r,g,b))
 
-
-def darken_color(hex_color, factor=0.2):
+def darken(hex_color, factor=0.2):
 
     r,g,b = hex_to_rgb(hex_color)
 
@@ -58,7 +56,7 @@ def is_dark(hex_color):
 
     brightness = (r*299 + g*587 + b*114)/1000
 
-    return brightness < 150
+    return brightness < 140
 
 
 # ---------- START ----------
@@ -71,10 +69,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Send an Excel file and I will format it beautifully.
 
 Features
-• Smart table styling
+• Custom header colors
 • Alternating rows
-• Chart color styling
 • Wrap text
+• Clean borders
 • Smart alignment
 
 Free Plan
@@ -103,8 +101,40 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_files[user] = path
 
+    keyboard = [
+
+        [InlineKeyboardButton("Use Excel Brand Color (#1D6F42)", callback_data="excel_color")],
+        [InlineKeyboardButton("Use Custom HEX Color", callback_data="custom_color")]
+
+    ]
+
     await update.message.reply_text(
-        "🎨 Send preferred HEX color for header.\nExample:\n#1D6F42"
+
+        "🎨 Choose header color style:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+
+    )
+
+
+# ---------- COLOR CHOICE ----------
+
+async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user.id
+
+    if query.data == "excel_color":
+
+        result = format_excel(user_files[user], "#1D6F42", 1)
+
+        await query.message.reply_document(document=open(result,"rb"))
+
+        return
+
+    await query.message.reply_text(
+        "Send preferred HEX color.\nExample:\n#FF5733"
     )
 
 
@@ -119,9 +149,9 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     hex_color = update.message.text.strip()
 
-    if not re.match(r'^#[0-9A-Fa-f]{6}$', hex_color):
+    if not hex_color.startswith("#") or len(hex_color)!=7:
 
-        await update.message.reply_text("❌ Invalid HEX.\nExample: #1D6F42")
+        await update.message.reply_text("Invalid HEX. Example: #FF5733")
         return
 
     user_colors[user] = hex_color
@@ -129,41 +159,53 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
 
         [
-            InlineKeyboardButton("1 Color Theme", callback_data="chart1"),
-            InlineKeyboardButton("2 Color Theme", callback_data="chart2")
+            InlineKeyboardButton("1 Color", callback_data="p1"),
+            InlineKeyboardButton("2 Colors", callback_data="p2")
+        ],
+        [
+            InlineKeyboardButton("3 Colors", callback_data="p3"),
+            InlineKeyboardButton("4 Colors", callback_data="p4")
         ]
 
     ]
 
     await update.message.reply_text(
 
-        "📊 How many colors should charts use?",
+        "How many header colors should be used?",
         reply_markup=InlineKeyboardMarkup(keyboard)
 
     )
 
 
-# ---------- CHART COLOR OPTION ----------
+# ---------- PATTERN CHOICE ----------
 
-async def chart_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pattern_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.answer()
 
     user = query.from_user.id
 
+    pattern = int(query.data[1])
+
     color = user_colors[user]
 
-    result = format_excel(user_files[user], color, query.data)
+    result = format_excel(user_files[user], color, pattern)
 
     await query.message.reply_document(document=open(result,"rb"))
 
 
 # ---------- EXCEL FORMAT ----------
 
-def format_excel(file, header_color, chart_mode):
+def format_excel(file, base_color, pattern):
 
-    wb = load_workbook(file)
+    df = pd.read_excel(file)
+
+    output = "formatted.xlsx"
+
+    df.to_excel(output, index=False)
+
+    wb = load_workbook(output)
 
     ws = wb.active
 
@@ -171,9 +213,8 @@ def format_excel(file, header_color, chart_mode):
     ws.insert_cols(1)
 
     thin = Side(style="thin", color="b7b7b7")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    header_fill = PatternFill(start_color=header_color.replace("#",""), fill_type="solid")
+    border = Border(left=thin,right=thin,top=thin,bottom=thin)
 
     gray_fill = PatternFill(start_color="F2F2F2", fill_type="solid")
     white_fill = PatternFill(start_color="FFFFFF", fill_type="solid")
@@ -181,50 +222,76 @@ def format_excel(file, header_color, chart_mode):
     max_row = ws.max_row
     max_col = ws.max_column
 
-    header_font_color = "FFFFFF" if is_dark(header_color) else "333333"
 
-    # HEADER
+    # -------- GENERATE HEADER COLORS --------
 
-    for c in range(2, max_col+1):
+    colors = [base_color.replace("#","")]
 
-        cell = ws.cell(row=2, column=c)
+    if pattern>=2:
+        colors.append(lighten(base_color,0.2))
 
-        cell.fill = header_fill
-        cell.font = Font(color=header_font_color, bold=True)
+    if pattern>=3:
+        colors.append(darken(base_color,0.2))
 
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    if pattern>=4:
+        colors.append(lighten(base_color,0.4))
+
+
+    # if more columns than colors generate shades
+
+    while len(colors)<max_col:
+
+        colors.append(lighten("#"+colors[-1],0.15))
+
+
+    font_color = "FFFFFF" if is_dark(base_color) else "333333"
+
+
+    # -------- HEADER STYLE --------
+
+    for c in range(2,max_col+1):
+
+        color = colors[(c-2)%pattern]
+
+        cell = ws.cell(row=2,column=c)
+
+        cell.fill = PatternFill(start_color=color, fill_type="solid")
+
+        cell.font = Font(color=font_color,bold=True)
+
+        cell.alignment = Alignment(horizontal="center",vertical="center",wrap_text=True)
 
         cell.border = border
 
 
-    # DATA
+    # -------- DATA CELLS --------
 
-    for r in range(3, max_row+1):
+    for r in range(3,max_row+1):
 
-        for c in range(2, max_col+1):
+        for c in range(2,max_col+1):
 
-            cell = ws.cell(row=r, column=c)
+            cell = ws.cell(row=r,column=c)
 
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.alignment = Alignment(horizontal="center",vertical="center",wrap_text=True)
 
             cell.border = border
 
-            if r % 2 == 1:
+            if r%2==1:
                 cell.fill = gray_fill
             else:
                 cell.fill = white_fill
 
 
-    # WHITE BACKGROUND
+    # -------- CLEAN BACKGROUND --------
 
     for r in range(1, ws.max_row+50):
 
         for c in range(1, ws.max_column+50):
 
-            if r >= 2 and c >= 2 and r <= max_row and c <= max_col:
+            if r>=2 and c>=2 and r<=max_row and c<=max_col:
                 continue
 
-            cell = ws.cell(row=r, column=c)
+            cell = ws.cell(row=r,column=c)
 
             cell.fill = white_fill
             cell.border = Border()
@@ -232,39 +299,6 @@ def format_excel(file, header_color, chart_mode):
 
     ws.column_dimensions['A'].width = 2
 
-
-    # ---------- CHART COLORING ----------
-
-    if chart_mode == "chart1":
-
-        base = header_color.replace("#","")
-
-        shade1 = lighten_color(base,0.2)
-        shade2 = darken_color(base,0.2)
-
-    else:
-
-        base = header_color.replace("#","")
-
-        shade1 = lighten_color(base,0.3)
-        shade2 = darken_color(base,0.3)
-
-
-    for chart in ws._charts:
-
-        try:
-
-            for i,series in enumerate(chart.series):
-
-                color = shade1 if i%2==0 else shade2
-
-                series.graphicalProperties.solidFill = color
-
-        except:
-            pass
-
-
-    output = "formatted.xlsx"
 
     wb.save(output)
 
@@ -281,6 +315,8 @@ app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_hex))
 
-app.add_handler(CallbackQueryHandler(chart_choice))
+app.add_handler(CallbackQueryHandler(color_choice, pattern="excel_color|custom_color"))
+
+app.add_handler(CallbackQueryHandler(pattern_choice, pattern="p[1-4]"))
 
 app.run_polling()
