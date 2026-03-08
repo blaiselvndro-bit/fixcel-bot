@@ -16,7 +16,6 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# store uploaded files temporarily
 user_files = {}
 
 
@@ -47,7 +46,7 @@ $6/month
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# FILE UPLOAD
+# HANDLE FILE UPLOAD
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -94,7 +93,7 @@ async def default_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_document(document=open(result, "rb"))
 
 
-# RECEIVE HEX
+# RECEIVE HEX COLOR
 
 async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -118,7 +117,7 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_document(document=open(result, "rb"))
 
 
-# EXCEL FORMAT FUNCTION
+# EXCEL FORMATTING FUNCTION
 
 def format_excel(file, header_color):
 
@@ -146,10 +145,12 @@ def format_excel(file, header_color):
 
     gray_fill = PatternFill(start_color="F2F2F2", fill_type="solid")
 
+    white_fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+
     max_row = ws.max_row
     max_col = ws.max_column
 
-    # HEADER ROW (row 2)
+    # HEADER STYLE
 
     for c in range(2, max_col + 1):
 
@@ -167,7 +168,7 @@ def format_excel(file, header_color):
 
         cell.border = border
 
-    # DATA ROWS
+    # DATA CELLS
 
     for r in range(3, max_row + 1):
 
@@ -184,28 +185,25 @@ def format_excel(file, header_color):
             cell.border = border
 
             if r % 2 == 1:
-
                 cell.fill = gray_fill
+            else:
+                cell.fill = white_fill
 
-    # CLEAN MARGINS
+    # MAKE EVERYTHING OUTSIDE TABLE WHITE
 
-    for c in range(1, max_col + 1):
+    for r in range(1, ws.max_row + 50):
 
-        cell = ws.cell(row=1, column=c)
+        for c in range(1, ws.max_column + 50):
 
-        cell.fill = PatternFill(fill_type=None)
+            if r >= 2 and c >= 2 and r <= max_row and c <= max_col:
+                continue
 
-        cell.border = Border()
+            cell = ws.cell(row=r, column=c)
 
-    for r in range(1, max_row + 1):
+            cell.fill = white_fill
+            cell.border = Border()
 
-        cell = ws.cell(row=r, column=1)
-
-        cell.fill = PatternFill(fill_type=None)
-
-        cell.border = Border()
-
-    # keep left margin narrow
+    # narrow margin column
 
     ws.column_dimensions['A'].width = 2
 
