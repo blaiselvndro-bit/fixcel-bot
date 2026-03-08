@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -26,8 +25,10 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.replace("#","")
     return tuple(int(hex_color[i:i+2],16) for i in (0,2,4))
 
+
 def rgb_to_hex(rgb):
     return "%02x%02x%02x" % rgb
+
 
 def lighten(hex_color, factor=0.2):
 
@@ -38,6 +39,7 @@ def lighten(hex_color, factor=0.2):
     b = int(b + (255-b)*factor)
 
     return rgb_to_hex((r,g,b))
+
 
 def darken(hex_color, factor=0.2):
 
@@ -68,16 +70,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Send an Excel file and I will format it beautifully.
 
-Features
-• Custom header colors
-• Alternating rows
-• Wrap text
-• Clean borders
-• Smart alignment
+Charts and objects will be preserved.
 
 Free Plan
 2 files per month
-
 Premium
 Unlimited formatting
 $6/month
@@ -195,17 +191,11 @@ async def pattern_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_document(document=open(result,"rb"))
 
 
-# ---------- EXCEL FORMAT ----------
+# ---------- EXCEL FORMAT (NO PANDAS = CHART SAFE) ----------
 
 def format_excel(file, base_color, pattern):
 
-    df = pd.read_excel(file)
-
-    output = "formatted.xlsx"
-
-    df.to_excel(output, index=False)
-
-    wb = load_workbook(output)
+    wb = load_workbook(file)
 
     ws = wb.active
 
@@ -223,7 +213,7 @@ def format_excel(file, base_color, pattern):
     max_col = ws.max_column
 
 
-    # -------- GENERATE HEADER COLORS --------
+    # ---------- GENERATE HEADER COLORS ----------
 
     colors = [base_color.replace("#","")]
 
@@ -237,8 +227,6 @@ def format_excel(file, base_color, pattern):
         colors.append(lighten(base_color,0.4))
 
 
-    # if more columns than colors generate shades
-
     while len(colors)<max_col:
 
         colors.append(lighten("#"+colors[-1],0.15))
@@ -247,7 +235,7 @@ def format_excel(file, base_color, pattern):
     font_color = "FFFFFF" if is_dark(base_color) else "333333"
 
 
-    # -------- HEADER STYLE --------
+    # ---------- HEADER ----------
 
     for c in range(2,max_col+1):
 
@@ -264,7 +252,7 @@ def format_excel(file, base_color, pattern):
         cell.border = border
 
 
-    # -------- DATA CELLS --------
+    # ---------- DATA ----------
 
     for r in range(3,max_row+1):
 
@@ -282,7 +270,7 @@ def format_excel(file, base_color, pattern):
                 cell.fill = white_fill
 
 
-    # -------- CLEAN BACKGROUND --------
+    # ---------- CLEAN BACKGROUND ----------
 
     for r in range(1, ws.max_row+50):
 
@@ -299,6 +287,7 @@ def format_excel(file, base_color, pattern):
 
     ws.column_dimensions['A'].width = 2
 
+    output = "formatted.xlsx"
 
     wb.save(output)
 
