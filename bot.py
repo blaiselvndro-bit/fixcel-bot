@@ -26,22 +26,19 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.replace("#","")
     return tuple(int(hex_color[i:i+2],16) for i in (0,2,4))
 
-def rgb_to_hex(rgb):
-    return "%02x%02x%02x" % rgb
-
 def lighten(hex_color, factor=0.25):
     r,g,b = hex_to_rgb(hex_color)
     r=int(r+(255-r)*factor)
     g=int(g+(255-g)*factor)
     b=int(b+(255-b)*factor)
-    return rgb_to_hex((r,g,b))
+    return "%02x%02x%02x" % (r,g,b)
 
 def darken(hex_color, factor=0.25):
     r,g,b = hex_to_rgb(hex_color)
     r=int(r*(1-factor))
     g=int(g*(1-factor))
     b=int(b*(1-factor))
-    return rgb_to_hex((r,g,b))
+    return "%02x%02x%02x" % (r,g,b)
 
 def is_dark(hex_color):
     r,g,b = hex_to_rgb(hex_color)
@@ -172,6 +169,7 @@ def format_excel(file,colors):
     border=Border(left=thin,right=thin,top=thin,bottom=thin)
 
     gray_fill=PatternFill(start_color="F2F2F2",fill_type="solid")
+    white_fill=PatternFill(start_color="FFFFFF",fill_type="solid")
 
     for ws in wb.worksheets:
 
@@ -180,7 +178,7 @@ def format_excel(file,colors):
 
         font_color="FFFFFF" if is_dark(colors[0]) else "333333"
 
-        # HEADER STYLE
+        # HEADER
         for c in range(1,max_col+1):
 
             cell=ws.cell(row=1,column=c)
@@ -197,8 +195,21 @@ def format_excel(file,colors):
 
                 cell.border=border
 
-        # DATA STYLE
+        # DATA ROWS
         for r in range(2,max_row+1):
+
+            row_has_value=False
+
+            for c in range(1,max_col+1):
+
+                if ws.cell(row=r,column=c).value:
+                    row_has_value=True
+                    break
+
+            if not row_has_value:
+                continue
+
+            fill=gray_fill if r%2==0 else white_fill
 
             for c in range(1,max_col+1):
 
@@ -208,12 +219,11 @@ def format_excel(file,colors):
 
                     cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
 
+                    cell.fill=fill
+
                     cell.border=border
 
-                    if r%2==0:
-                        cell.fill=gray_fill
-
-        # GANTT BAR ADAPTATION
+        # GANTT BARS
         for r in range(1,max_row+1):
 
             for c in range(1,max_col+1):
@@ -224,11 +234,11 @@ def format_excel(file,colors):
 
                     base=colors[(r+c)%len(colors)]
 
-                    new_color=lighten(base,0.3)
+                    shade=lighten(base,0.35)
 
-                    cell.fill=PatternFill(start_color=new_color,fill_type="solid")
+                    cell.fill=PatternFill(start_color=shade,fill_type="solid")
 
-        # CHART POSITIONING
+        # CHART POSITION
         for chart in ws._charts:
 
             chart.anchor._from.col=max_col+2
