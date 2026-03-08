@@ -18,54 +18,48 @@ TOKEN = os.getenv("BOT_TOKEN")
 user_files = {}
 user_colors = {}
 
-
 # ---------- COLOR HELPERS ----------
 
 def hex_to_rgb(hex_color):
     hex_color = hex_color.replace("#","")
     return tuple(int(hex_color[i:i+2],16) for i in (0,2,4))
 
-
 def rgb_to_hex(rgb):
     return "%02x%02x%02x" % rgb
 
-
-def lighten(hex_color, factor=0.2):
-
-    r,g,b = hex_to_rgb(hex_color)
-
-    r = int(r + (255-r)*factor)
-    g = int(g + (255-g)*factor)
-    b = int(b + (255-b)*factor)
-
-    return rgb_to_hex((r,g,b))
-
-
-def darken(hex_color, factor=0.2):
+def lighten(hex_color,factor=0.2):
 
     r,g,b = hex_to_rgb(hex_color)
 
-    r = int(r*(1-factor))
-    g = int(g*(1-factor))
-    b = int(b*(1-factor))
+    r=int(r+(255-r)*factor)
+    g=int(g+(255-g)*factor)
+    b=int(b+(255-b)*factor)
 
     return rgb_to_hex((r,g,b))
 
+def darken(hex_color,factor=0.2):
+
+    r,g,b = hex_to_rgb(hex_color)
+
+    r=int(r*(1-factor))
+    g=int(g*(1-factor))
+    b=int(b*(1-factor))
+
+    return rgb_to_hex((r,g,b))
 
 def is_dark(hex_color):
 
     r,g,b = hex_to_rgb(hex_color)
 
-    brightness = (r*299 + g*587 + b*114)/1000
+    brightness=(r*299+g*587+b*114)/1000
 
-    return brightness < 140
-
+    return brightness<140
 
 # ---------- START ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    text = """
+    text="""
 🎨 *Welcome to FIXCEL*
 
 Send an Excel file and I will format it beautifully.
@@ -73,28 +67,27 @@ Send an Excel file and I will format it beautifully.
 Charts and formulas will be preserved.
 """
 
-    await update.message.reply_text(text, parse_mode="Markdown")
-
+    await update.message.reply_text(text,parse_mode="Markdown")
 
 # ---------- FILE UPLOAD ----------
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user = update.message.from_user.id
-    file = update.message.document
+    user=update.message.from_user.id
+    file=update.message.document
 
-    tg_file = await file.get_file()
+    tg_file=await file.get_file()
 
-    path = f"{user}_input.xlsx"
+    path=f"{user}_input.xlsx"
 
     await tg_file.download_to_drive(path)
 
-    user_files[user] = path
+    user_files[user]=path
 
-    keyboard = [
+    keyboard=[
 
-        [InlineKeyboardButton("Use Excel Brand Color (#1D6F42)", callback_data="excel_color")],
-        [InlineKeyboardButton("Use Custom HEX Color", callback_data="custom_color")]
+        [InlineKeyboardButton("Use Excel Brand Color (#1D6F42)",callback_data="excel_color")],
+        [InlineKeyboardButton("Use Custom HEX Color",callback_data="custom_color")]
 
     ]
 
@@ -105,19 +98,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     )
 
-
 # ---------- COLOR CHOICE ----------
 
 async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    query = update.callback_query
+    query=update.callback_query
     await query.answer()
 
-    user = query.from_user.id
+    user=query.from_user.id
 
-    if query.data == "excel_color":
+    if query.data=="excel_color":
 
-        result = format_excel(user_files[user], "#1D6F42", 1)
+        result=format_excel(user_files[user],"#1D6F42",1)
 
         await query.message.reply_document(document=open(result,"rb"))
 
@@ -127,34 +119,33 @@ async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Send preferred HEX color.\nExample:\n#FF5733"
     )
 
-
 # ---------- RECEIVE HEX ----------
 
 async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user = update.message.from_user.id
+    user=update.message.from_user.id
 
     if user not in user_files:
         return
 
-    hex_color = update.message.text.strip()
+    hex_color=update.message.text.strip()
 
     if not hex_color.startswith("#") or len(hex_color)!=7:
 
         await update.message.reply_text("Invalid HEX. Example: #FF5733")
         return
 
-    user_colors[user] = hex_color
+    user_colors[user]=hex_color
 
-    keyboard = [
+    keyboard=[
 
         [
-            InlineKeyboardButton("1 Color", callback_data="p1"),
-            InlineKeyboardButton("2 Colors", callback_data="p2")
+            InlineKeyboardButton("1 Color",callback_data="p1"),
+            InlineKeyboardButton("2 Colors",callback_data="p2")
         ],
         [
-            InlineKeyboardButton("3 Colors", callback_data="p3"),
-            InlineKeyboardButton("4 Colors", callback_data="p4")
+            InlineKeyboardButton("3 Colors",callback_data="p3"),
+            InlineKeyboardButton("4 Colors",callback_data="p4")
         ]
 
     ]
@@ -166,45 +157,48 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     )
 
-
 # ---------- PATTERN CHOICE ----------
 
 async def pattern_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    query = update.callback_query
+    query=update.callback_query
     await query.answer()
 
-    user = query.from_user.id
+    user=query.from_user.id
 
-    pattern = int(query.data[1])
+    pattern=int(query.data[1])
 
-    color = user_colors[user]
+    color=user_colors[user]
 
-    result = format_excel(user_files[user], color, pattern)
+    result=format_excel(user_files[user],color,pattern)
 
     await query.message.reply_document(document=open(result,"rb"))
 
+# ---------- FORMAT EXCEL ----------
 
-# ---------- EXCEL FORMAT ----------
+def format_excel(file,base_color,pattern):
 
-def format_excel(file, base_color, pattern):
+    wb=load_workbook(file)
 
-    wb = load_workbook(file)
-    ws = wb.active
+    ws=wb.active
 
-    thin = Side(style="thin", color="b7b7b7")
-    border = Border(left=thin,right=thin,top=thin,bottom=thin)
+    # ADD MARGINS
+    ws.insert_rows(1)
+    ws.insert_cols(1)
 
-    gray_fill = PatternFill(start_color="F2F2F2", fill_type="solid")
-    white_fill = PatternFill(start_color="FFFFFF", fill_type="solid")
+    thin=Side(style="thin",color="b7b7b7")
 
-    max_row = ws.max_row
-    max_col = ws.max_column
+    border=Border(left=thin,right=thin,top=thin,bottom=thin)
 
+    gray_fill=PatternFill(start_color="F2F2F2",fill_type="solid")
+    white_fill=PatternFill(start_color="FFFFFF",fill_type="solid")
 
-    # -------- HEADER COLORS --------
+    max_row=ws.max_row
+    max_col=ws.max_column
 
-    colors = [base_color.replace("#","")]
+    # HEADER COLORS
+
+    colors=[base_color.replace("#","")]
 
     if pattern>=2:
         colors.append(lighten(base_color,0.2))
@@ -215,78 +209,104 @@ def format_excel(file, base_color, pattern):
     if pattern>=4:
         colors.append(lighten(base_color,0.4))
 
-
     while len(colors)<max_col:
         colors.append(lighten("#"+colors[-1],0.15))
 
+    font_color="FFFFFF" if is_dark(base_color) else "333333"
 
-    font_color = "FFFFFF" if is_dark(base_color) else "333333"
+    # HEADER STYLE
 
+    for c in range(2,max_col+1):
 
-    # -------- HEADER STYLE --------
+        color=colors[(c-2)%pattern]
 
-    for c in range(1,max_col+1):
+        cell=ws.cell(row=2,column=c)
 
-        color = colors[(c-1)%pattern]
+        cell.fill=PatternFill(start_color=color,fill_type="solid")
 
-        cell = ws.cell(row=1,column=c)
+        cell.font=Font(color=font_color,bold=True)
 
-        cell.fill = PatternFill(start_color=color, fill_type="solid")
+        cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
 
-        cell.font = Font(color=font_color,bold=True)
+        cell.border=border
 
-        cell.alignment = Alignment(horizontal="center",vertical="center",wrap_text=True)
+    # DATA STYLE
 
-        cell.border = border
+    for r in range(3,max_row+1):
 
+        for c in range(2,max_col+1):
 
-    # -------- DATA --------
+            cell=ws.cell(row=r,column=c)
 
-    for r in range(2,max_row+1):
+            cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
 
-        for c in range(1,max_col+1):
+            cell.border=border
 
-            cell = ws.cell(row=r,column=c)
-
-            cell.alignment = Alignment(horizontal="center",vertical="center",wrap_text=True)
-
-            cell.border = border
-
-            if r%2==0:
-                cell.fill = gray_fill
+            if r%2==1:
+                cell.fill=gray_fill
             else:
-                cell.fill = white_fill
+                cell.fill=white_fill
 
+    # CLEAN OUTSIDE CELLS
 
-    # -------- MOVE CHARTS AWAY FROM TABLE --------
+    for r in range(1,max_row+30):
 
-    spacing_column = max_col + 3
+        for c in range(1,max_col+30):
+
+            if r>=2 and c>=2 and r<=max_row and c<=max_col:
+                continue
+
+            cell=ws.cell(row=r,column=c)
+
+            cell.fill=white_fill
+            cell.border=Border()
+
+    # UPDATE CHART DATA REFERENCES
 
     for chart in ws._charts:
 
-        chart.anchor._from.col = spacing_column
-        chart.anchor._from.row = 1
+        try:
 
+            for series in chart.series:
 
-    output = "formatted.xlsx"
+                ref=str(series.val.numRef.f)
+
+                ref=ref.replace("A","B").replace("B","C")
+
+                series.val.numRef.f=ref
+
+        except:
+            pass
+
+    # MOVE CHARTS RIGHT
+
+    spacing=max_col+3
+
+    for chart in ws._charts:
+
+        chart.anchor._from.col=spacing
+        chart.anchor._from.row=2
+
+    ws.column_dimensions['A'].width=2
+
+    output="formatted.xlsx"
 
     wb.save(output)
 
     return output
 
-
 # ---------- BOT ----------
 
-app = ApplicationBuilder().token(TOKEN).build()
+app=ApplicationBuilder().token(TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("start",start))
 
-app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+app.add_handler(MessageHandler(filters.Document.ALL,handle_file))
 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_hex))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,receive_hex))
 
-app.add_handler(CallbackQueryHandler(color_choice, pattern="excel_color|custom_color"))
+app.add_handler(CallbackQueryHandler(color_choice,pattern="excel_color|custom_color"))
 
-app.add_handler(CallbackQueryHandler(pattern_choice, pattern="p[1-4]"))
+app.add_handler(CallbackQueryHandler(pattern_choice,pattern="p[1-4]"))
 
 app.run_polling()
