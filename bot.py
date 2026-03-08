@@ -70,13 +70,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Send an Excel file and I will format it beautifully.
 
-Charts and objects will be preserved.
-
-Free Plan
-2 files per month
-Premium
-Unlimited formatting
-$6/month
+Charts and formulas will be preserved.
 """
 
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -191,19 +185,14 @@ async def pattern_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_document(document=open(result,"rb"))
 
 
-# ---------- EXCEL FORMAT (NO PANDAS = CHART SAFE) ----------
+# ---------- EXCEL FORMAT ----------
 
 def format_excel(file, base_color, pattern):
 
     wb = load_workbook(file)
-
     ws = wb.active
 
-    ws.insert_rows(1)
-    ws.insert_cols(1)
-
     thin = Side(style="thin", color="b7b7b7")
-
     border = Border(left=thin,right=thin,top=thin,bottom=thin)
 
     gray_fill = PatternFill(start_color="F2F2F2", fill_type="solid")
@@ -213,7 +202,7 @@ def format_excel(file, base_color, pattern):
     max_col = ws.max_column
 
 
-    # ---------- GENERATE HEADER COLORS ----------
+    # -------- HEADER COLORS --------
 
     colors = [base_color.replace("#","")]
 
@@ -228,20 +217,19 @@ def format_excel(file, base_color, pattern):
 
 
     while len(colors)<max_col:
-
         colors.append(lighten("#"+colors[-1],0.15))
 
 
     font_color = "FFFFFF" if is_dark(base_color) else "333333"
 
 
-    # ---------- HEADER ----------
+    # -------- HEADER STYLE --------
 
-    for c in range(2,max_col+1):
+    for c in range(1,max_col+1):
 
-        color = colors[(c-2)%pattern]
+        color = colors[(c-1)%pattern]
 
-        cell = ws.cell(row=2,column=c)
+        cell = ws.cell(row=1,column=c)
 
         cell.fill = PatternFill(start_color=color, fill_type="solid")
 
@@ -252,11 +240,11 @@ def format_excel(file, base_color, pattern):
         cell.border = border
 
 
-    # ---------- DATA ----------
+    # -------- DATA --------
 
-    for r in range(3,max_row+1):
+    for r in range(2,max_row+1):
 
-        for c in range(2,max_col+1):
+        for c in range(1,max_col+1):
 
             cell = ws.cell(row=r,column=c)
 
@@ -264,28 +252,21 @@ def format_excel(file, base_color, pattern):
 
             cell.border = border
 
-            if r%2==1:
+            if r%2==0:
                 cell.fill = gray_fill
             else:
                 cell.fill = white_fill
 
 
-    # ---------- CLEAN BACKGROUND ----------
+    # -------- MOVE CHARTS AWAY FROM TABLE --------
 
-    for r in range(1, ws.max_row+50):
+    spacing_column = max_col + 3
 
-        for c in range(1, ws.max_column+50):
+    for chart in ws._charts:
 
-            if r>=2 and c>=2 and r<=max_row and c<=max_col:
-                continue
+        chart.anchor._from.col = spacing_column
+        chart.anchor._from.row = 1
 
-            cell = ws.cell(row=r,column=c)
-
-            cell.fill = white_fill
-            cell.border = Border()
-
-
-    ws.column_dimensions['A'].width = 2
 
     output = "formatted.xlsx"
 
@@ -294,7 +275,7 @@ def format_excel(file, base_color, pattern):
     return output
 
 
-# ---------- BOT SETUP ----------
+# ---------- BOT ----------
 
 app = ApplicationBuilder().token(TOKEN).build()
 
