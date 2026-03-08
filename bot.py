@@ -17,6 +17,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 user_files = {}
 user_colors = {}
+user_color_count = {}
 
 # ---------- COLOR HELPERS ----------
 
@@ -28,31 +29,15 @@ def rgb_to_hex(rgb):
     return "%02x%02x%02x" % rgb
 
 def lighten(hex_color,factor=0.2):
-
     r,g,b = hex_to_rgb(hex_color)
-
     r=int(r+(255-r)*factor)
     g=int(g+(255-g)*factor)
     b=int(b+(255-b)*factor)
-
-    return rgb_to_hex((r,g,b))
-
-def darken(hex_color,factor=0.2):
-
-    r,g,b = hex_to_rgb(hex_color)
-
-    r=int(r*(1-factor))
-    g=int(g*(1-factor))
-    b=int(b*(1-factor))
-
     return rgb_to_hex((r,g,b))
 
 def is_dark(hex_color):
-
     r,g,b = hex_to_rgb(hex_color)
-
     brightness=(r*299+g*587+b*114)/1000
-
     return brightness<140
 
 # ---------- START ----------
@@ -64,7 +49,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Send an Excel file and I will format it beautifully.
 
-Charts and formulas will be preserved.
+Charts and formulas are preserved.
 """
 
     await update.message.reply_text(text,parse_mode="Markdown")
@@ -87,18 +72,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard=[
 
         [InlineKeyboardButton("Use Excel Brand Color (#1D6F42)",callback_data="excel_color")],
-        [InlineKeyboardButton("Use Custom HEX Color",callback_data="custom_color")]
+        [InlineKeyboardButton("Use Custom Colors",callback_data="custom_colors")]
 
     ]
 
     await update.message.reply_text(
-
-        "🎨 Choose header color style:",
+        "🎨 Choose color style:",
         reply_markup=InlineKeyboardMarkup(keyboard)
-
     )
 
-# ---------- COLOR CHOICE ----------
+# ---------- COLOR STYLE ----------
 
 async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -109,17 +92,51 @@ async def color_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data=="excel_color":
 
-        result=format_excel(user_files[user],"#1D6F42",1)
+        result=format_excel(user_files[user],["#1D6F42"])
 
         await query.message.reply_document(document=open(result,"rb"))
 
         return
 
+    keyboard=[
+
+        [
+            InlineKeyboardButton("1",callback_data="c1"),
+            InlineKeyboardButton("2",callback_data="c2"),
+            InlineKeyboardButton("3",callback_data="c3")
+        ],
+        [
+            InlineKeyboardButton("4",callback_data="c4"),
+            InlineKeyboardButton("5",callback_data="c5"),
+            InlineKeyboardButton("6",callback_data="c6")
+        ]
+
+    ]
+
     await query.message.reply_text(
-        "Send preferred HEX color.\nExample:\n#FF5733"
+        "How many header colors should be used?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ---------- RECEIVE HEX ----------
+# ---------- COLOR COUNT ----------
+
+async def color_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query=update.callback_query
+    await query.answer()
+
+    user=query.from_user.id
+
+    count=int(query.data[1])
+
+    user_color_count[user]=count
+    user_colors[user]=[]
+
+    await query.message.reply_text(
+        f"Send HEX color 1 of {count}"
+    )
+
+# ---------- RECEIVE HEX COLORS ----------
 
 async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -132,51 +149,26 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not hex_color.startswith("#") or len(hex_color)!=7:
 
-        await update.message.reply_text("Invalid HEX. Example: #FF5733")
+        await update.message.reply_text("Invalid HEX example: #FF5733")
         return
 
-    user_colors[user]=hex_color
+    user_colors[user].append(hex_color)
 
-    keyboard=[
+    if len(user_colors[user])<user_color_count[user]:
 
-        [
-            InlineKeyboardButton("1 Color",callback_data="p1"),
-            InlineKeyboardButton("2 Colors",callback_data="p2")
-        ],
-        [
-            InlineKeyboardButton("3 Colors",callback_data="p3"),
-            InlineKeyboardButton("4 Colors",callback_data="p4")
-        ]
+        await update.message.reply_text(
+            f"Send HEX color {len(user_colors[user])+1} of {user_color_count[user]}"
+        )
 
-    ]
+        return
 
-    await update.message.reply_text(
+    result=format_excel(user_files[user],user_colors[user])
 
-        "How many header colors should be used?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-
-    )
-
-# ---------- PATTERN CHOICE ----------
-
-async def pattern_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query=update.callback_query
-    await query.answer()
-
-    user=query.from_user.id
-
-    pattern=int(query.data[1])
-
-    color=user_colors[user]
-
-    result=format_excel(user_files[user],color,pattern)
-
-    await query.message.reply_document(document=open(result,"rb"))
+    await update.message.reply_document(document=open(result,"rb"))
 
 # ---------- FORMAT EXCEL ----------
 
-def format_excel(file,base_color,pattern):
+def format_excel(file,colors):
 
     wb=load_workbook(file)
 
@@ -196,29 +188,13 @@ def format_excel(file,base_color,pattern):
     max_row=ws.max_row
     max_col=ws.max_column
 
-    # HEADER COLORS
+    font_color="FFFFFF" if is_dark(colors[0]) else "333333"
 
-    colors=[base_color.replace("#","")]
-
-    if pattern>=2:
-        colors.append(lighten(base_color,0.2))
-
-    if pattern>=3:
-        colors.append(darken(base_color,0.2))
-
-    if pattern>=4:
-        colors.append(lighten(base_color,0.4))
-
-    while len(colors)<max_col:
-        colors.append(lighten("#"+colors[-1],0.15))
-
-    font_color="FFFFFF" if is_dark(base_color) else "333333"
-
-    # HEADER STYLE
+    # HEADER
 
     for c in range(2,max_col+1):
 
-        color=colors[(c-2)%pattern]
+        color=colors[(c-2)%len(colors)].replace("#","")
 
         cell=ws.cell(row=2,column=c)
 
@@ -230,7 +206,7 @@ def format_excel(file,base_color,pattern):
 
         cell.border=border
 
-    # DATA STYLE
+    # DATA
 
     for r in range(3,max_row+1):
 
@@ -247,7 +223,7 @@ def format_excel(file,base_color,pattern):
             else:
                 cell.fill=white_fill
 
-    # CLEAN OUTSIDE CELLS
+    # CLEAN BACKGROUND
 
     for r in range(1,max_row+30):
 
@@ -261,30 +237,11 @@ def format_excel(file,base_color,pattern):
             cell.fill=white_fill
             cell.border=Border()
 
-    # UPDATE CHART DATA REFERENCES
-
-    for chart in ws._charts:
-
-        try:
-
-            for series in chart.series:
-
-                ref=str(series.val.numRef.f)
-
-                ref=ref.replace("A","B").replace("B","C")
-
-                series.val.numRef.f=ref
-
-        except:
-            pass
-
     # MOVE CHARTS RIGHT
 
-    spacing=max_col+3
-
     for chart in ws._charts:
 
-        chart.anchor._from.col=spacing
+        chart.anchor._from.col=max_col+3
         chart.anchor._from.row=2
 
     ws.column_dimensions['A'].width=2
@@ -305,8 +262,8 @@ app.add_handler(MessageHandler(filters.Document.ALL,handle_file))
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,receive_hex))
 
-app.add_handler(CallbackQueryHandler(color_choice,pattern="excel_color|custom_color"))
+app.add_handler(CallbackQueryHandler(color_choice,pattern="excel_color|custom_colors"))
 
-app.add_handler(CallbackQueryHandler(pattern_choice,pattern="p[1-4]"))
+app.add_handler(CallbackQueryHandler(color_count,pattern="c[1-6]"))
 
 app.run_polling()
