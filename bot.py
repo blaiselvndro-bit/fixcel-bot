@@ -13,6 +13,7 @@ from telegram.ext import (
 
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 TOKEN = os.getenv("BOT_TOKEN")
 
@@ -26,24 +27,28 @@ def hex_to_rgb(hex_color):
     hex_color = hex_color.replace("#","")
     return tuple(int(hex_color[i:i+2],16) for i in (0,2,4))
 
-def lighten(hex_color, factor=0.25):
-    r,g,b = hex_to_rgb(hex_color)
-    r=int(r+(255-r)*factor)
-    g=int(g+(255-g)*factor)
-    b=int(b+(255-b)*factor)
-    return "%02x%02x%02x" % (r,g,b)
-
-def darken(hex_color, factor=0.25):
-    r,g,b = hex_to_rgb(hex_color)
-    r=int(r*(1-factor))
-    g=int(g*(1-factor))
-    b=int(b*(1-factor))
-    return "%02x%02x%02x" % (r,g,b)
-
 def is_dark(hex_color):
     r,g,b = hex_to_rgb(hex_color)
     brightness=(r*299+g*587+b*114)/1000
     return brightness<140
+
+# ---------- CHART REFERENCE SHIFT ----------
+
+def shift_reference(ref):
+
+    pattern=r'(\$?[A-Z]+)(\$?\d+)'
+
+    def repl(match):
+
+        col=match.group(1).replace("$","")
+        row=int(match.group(2).replace("$",""))
+
+        new_col=get_column_letter(column_index_from_string(col)+1)
+        new_row=row+1
+
+        return f"${new_col}${new_row}"
+
+    return re.sub(pattern,repl,ref)
 
 # ---------- START ----------
 
@@ -55,10 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Send an Excel file and I will format it beautifully.
 
-✔ Tables supported
-✔ Charts preserved
-✔ Gantt charts supported
-✔ Layout preserved
+Charts, legends, and formulas will be preserved.
 """,
 parse_mode="Markdown"
 )
@@ -141,7 +143,7 @@ async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     hex_color=update.message.text.strip()
 
-    if not re.match(r'^#[0-9A-Fa-f]{6}$', hex_color):
+    if not hex_color.startswith("#") or len(hex_color)!=7:
 
         await update.message.reply_text("Invalid HEX example: #FF5733")
         return
@@ -164,6 +166,28 @@ f"Send HEX color {len(user_colors[user])+1} of {user_color_count[user]}"
 def format_excel(file,colors):
 
     wb=load_workbook(file)
+    ws=wb.active
+
+    # shift chart references FIRST
+    for chart in ws._charts:
+
+        try:
+            for series in chart.series:
+
+                if series.val and series.val.numRef:
+
+                    series.val.numRef.f=shift_reference(series.val.numRef.f)
+
+                if series.cat and series.cat.numRef:
+
+                    series.cat.numRef.f=shift_reference(series.cat.numRef.f)
+
+        except:
+            pass
+
+    # insert margins
+    ws.insert_rows(1)
+    ws.insert_cols(1)
 
     thin=Side(style="thin",color="b7b7b7")
     border=Border(left=thin,right=thin,top=thin,bottom=thin)
@@ -171,78 +195,60 @@ def format_excel(file,colors):
     gray_fill=PatternFill(start_color="F2F2F2",fill_type="solid")
     white_fill=PatternFill(start_color="FFFFFF",fill_type="solid")
 
-    for ws in wb.worksheets:
+    max_row=ws.max_row
+    max_col=ws.max_column
 
-        max_row=ws.max_row
-        max_col=ws.max_column
+    font_color="FFFFFF" if is_dark(colors[0]) else "333333"
 
-        font_color="FFFFFF" if is_dark(colors[0]) else "333333"
+    # HEADER
 
-        # HEADER
-        for c in range(1,max_col+1):
+    for c in range(2,max_col+1):
 
-            cell=ws.cell(row=1,column=c)
+        color=colors[(c-2)%len(colors)].replace("#","")
 
-            if cell.value:
+        cell=ws.cell(row=2,column=c)
 
-                color=colors[(c-1)%len(colors)].replace("#","")
+        cell.fill=PatternFill(start_color=color,fill_type="solid")
+        cell.font=Font(color=font_color,bold=True)
+        cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+        cell.border=border
 
-                cell.fill=PatternFill(start_color=color,fill_type="solid")
+    # DATA
 
-                cell.font=Font(color=font_color,bold=True)
+    for r in range(3,max_row+1):
 
-                cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+        for c in range(2,max_col+1):
 
-                cell.border=border
+            cell=ws.cell(row=r,column=c)
 
-        # DATA ROWS
-        for r in range(2,max_row+1):
+            cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
+            cell.border=border
 
-            row_has_value=False
+            if r%2==1:
+                cell.fill=gray_fill
+            else:
+                cell.fill=white_fill
 
-            for c in range(1,max_col+1):
+    # CLEAN OUTSIDE
 
-                if ws.cell(row=r,column=c).value:
-                    row_has_value=True
-                    break
+    for r in range(1,max_row+30):
 
-            if not row_has_value:
+        for c in range(1,max_col+30):
+
+            if r>=2 and c>=2 and r<=max_row and c<=max_col:
                 continue
 
-            fill=gray_fill if r%2==0 else white_fill
+            cell=ws.cell(row=r,column=c)
+            cell.fill=white_fill
+            cell.border=Border()
 
-            for c in range(1,max_col+1):
+    # move charts right
+    for chart in ws._charts:
 
-                cell=ws.cell(row=r,column=c)
+        chart.anchor._from.col=max_col+3
+        chart.anchor._from.row=2
 
-                if cell.value:
-
-                    cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
-
-                    cell.fill=fill
-
-                    cell.border=border
-
-        # GANTT BARS
-        for r in range(1,max_row+1):
-
-            for c in range(1,max_col+1):
-
-                cell=ws.cell(row=r,column=c)
-
-                if cell.fill and cell.fill.start_color and cell.fill.start_color.rgb:
-
-                    base=colors[(r+c)%len(colors)]
-
-                    shade=lighten(base,0.35)
-
-                    cell.fill=PatternFill(start_color=shade,fill_type="solid")
-
-        # CHART POSITION
-        for chart in ws._charts:
-
-            chart.anchor._from.col=max_col+2
-            chart.anchor._from.row=1
+    ws.column_dimensions['A'].width=2
 
     output="formatted.xlsx"
 
