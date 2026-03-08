@@ -1,35 +1,111 @@
 import os
 import pandas as pd
-import sqlite3
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes
+)
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# ---------- DATABASE ----------
+user_files = {}
 
-def init_db():
-    conn = sqlite3.connect("users.db")
-    cur = conn.cursor()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users(
-        user_id INTEGER PRIMARY KEY,
-        files_used INTEGER DEFAULT 0,
-        month TEXT,
-        premium INTEGER DEFAULT 0
+# START MESSAGE
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text = """
+🎨 *Welcome to FIXCEL*
+
+Send an Excel file and I will format it beautifully.
+
+Features
+• Custom header color
+• Alternating rows
+• Wrap text
+• Clean borders
+• Smart alignment
+
+Free Plan
+2 files per month
+
+Premium
+Unlimited formatting
+$6/month
+"""
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+# FILE UPLOAD
+
+async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.message.from_user.id
+    file = update.message.document
+
+    tg_file = await file.get_file()
+    path = f"{user}_input.xlsx"
+
+    await tg_file.download_to_drive(path)
+
+    user_files[user] = path
+
+    keyboard = [
+        [InlineKeyboardButton("Use Default Color (#1D6F42)", callback_data="default_color")]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🎨 Send a preferred HEX color for the header.\nExample:\n#FF5733\n\nOr choose default:",
+        reply_markup=reply_markup
     )
-    """)
-
-    conn.commit()
-    conn.close()
-
-init_db()
 
 
-# ---------- FORMAT FUNCTION ----------
+# DEFAULT COLOR BUTTON
+
+async def default_color(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user.id
+    file = user_files[user]
+
+    result = format_excel(file, "#1D6F42")
+
+    await query.message.reply_document(document=open(result, "rb"))
+
+
+# HEX COLOR MESSAGE
+
+async def receive_hex(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user = update.message.from_user.id
+
+    if user not in user_files:
+        return
+
+    hex_color = update.message.text.strip()
+
+    if not hex_color.startswith("#") or len(hex_color) != 7:
+        await update.message.reply_text("❌ Invalid HEX color.\nExample: #1D6F42")
+        return
+
+    result = format_excel(user_files[user], hex_color)
+
+    await update.message.reply_document(document=open(result, "rb"))
+
+
+# FORMAT FUNCTION
 
 def format_excel(file, header_color):
 
@@ -41,22 +117,50 @@ def format_excel(file, header_color):
     wb = load_workbook(output)
     ws = wb.active
 
-    header_fill = PatternFill(start_color=header_color.replace("#",""), fill_type="solid")
+    thin = Side(style="thin", color="b7b7b7")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = Font(color="FFFFFF", bold=True)
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    header_fill = PatternFill(start_color=header_color.replace("#",""), fill_type="solid")
 
     gray_fill = PatternFill(start_color="F2F2F2", fill_type="solid")
 
-    for i,row in enumerate(ws.iter_rows(min_row=2), start=2):
+    # Add margin row and column
+    ws.insert_rows(1)
+    ws.insert_cols(1)
 
-        for cell in row:
+    max_row = ws.max_row
+    max_col = ws.max_column
 
-            cell.alignment = Alignment(horizontal="left", wrap_text=True)
+    # Header styling
+    for cell in ws[2]:
 
-            if i % 2 == 0:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True
+        )
+
+        cell.border = border
+
+    # Values
+    for r in range(3, max_row + 1):
+
+        for c in range(2, max_col + 1):
+
+            cell = ws.cell(r, c)
+
+            cell.alignment = Alignment(
+                horizontal="center",
+                vertical="center",
+                wrap_text=True
+            )
+
+            cell.border = border
+
+            if r % 2 == 0:
                 cell.fill = gray_fill
 
     wb.save(output)
@@ -64,111 +168,13 @@ def format_excel(file, header_color):
     return output
 
 
-# ---------- USER LIMIT CHECK ----------
-
-def can_use(user_id):
-
-    conn = sqlite3.connect("users.db")
-    cur = conn.cursor()
-
-    cur.execute("SELECT files_used,premium FROM users WHERE user_id=?", (user_id,))
-    row = cur.fetchone()
-
-    if row is None:
-        cur.execute("INSERT INTO users(user_id,files_used,premium) VALUES (?,0,0)",(user_id,))
-        conn.commit()
-        conn.close()
-        return True
-
-    files_used, premium = row
-
-    if premium == 1:
-        conn.close()
-        return True
-
-    if files_used >= 2:
-        conn.close()
-        return False
-
-    cur.execute("UPDATE users SET files_used=files_used+1 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-    return True
-
-
-# ---------- BOT COMMANDS ----------
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-"""
-Welcome to FIXCEL 🎨
-
-Upload an Excel file and I will format it beautifully.
-
-Features:
-• Colored header
-• Alternating rows
-• Wrap text
-• Clean alignment
-
-Free Plan
-2 files per month
-
-Premium
-Unlimited formatting
-$6/month
-"""
-)
-
-
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user = update.message.from_user.id
-
-    if not can_use(user):
-
-        await update.message.reply_text(
-"⚠️ Free limit reached.\nUpgrade to premium for unlimited formatting.\n\nUse /premium"
-        )
-        return
-
-    file = update.message.document
-
-    tg_file = await file.get_file()
-
-    await tg_file.download_to_drive("input.xlsx")
-
-    header_color = "#1D6F42"
-
-    result = format_excel("input.xlsx", header_color)
-
-    await update.message.reply_document(document=open(result,"rb"))
-
-
-# ---------- PREMIUM PAYMENT ----------
-
-async def premium(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-"""
-⭐ FIXCEL Premium
-
-Unlimited Excel formatting.
-
-Price:
-$6 per month via Telegram Stars.
-"""
-)
-
-
-# ---------- START BOT ----------
+# RUN BOT
 
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("premium", premium))
 app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, receive_hex))
+app.add_handler(CallbackQueryHandler(default_color))
 
 app.run_polling()
