@@ -168,27 +168,6 @@ def format_excel(file,colors):
     wb=load_workbook(file)
     ws=wb.active
 
-    # shift chart references FIRST
-    for chart in ws._charts:
-
-        try:
-            for series in chart.series:
-
-                if series.val and series.val.numRef:
-
-                    series.val.numRef.f=shift_reference(series.val.numRef.f)
-
-                if series.cat and series.cat.numRef:
-
-                    series.cat.numRef.f=shift_reference(series.cat.numRef.f)
-
-        except:
-            pass
-
-    # insert margins
-    ws.insert_rows(1)
-    ws.insert_cols(1)
-
     thin=Side(style="thin",color="b7b7b7")
     border=Border(left=thin,right=thin,top=thin,bottom=thin)
 
@@ -202,11 +181,11 @@ def format_excel(file,colors):
 
     # HEADER
 
-    for c in range(2,max_col+1):
+    for c in range(1,max_col+1):
 
-        color=colors[(c-2)%len(colors)].replace("#","")
+        color=colors[(c-1)%len(colors)].replace("#","")
 
-        cell=ws.cell(row=2,column=c)
+        cell=ws.cell(row=1,column=c)
 
         cell.fill=PatternFill(start_color=color,fill_type="solid")
         cell.font=Font(color=font_color,bold=True)
@@ -215,16 +194,16 @@ def format_excel(file,colors):
 
     # DATA
 
-    for r in range(3,max_row+1):
+    for r in range(2,max_row+1):
 
-        for c in range(2,max_col+1):
+        for c in range(1,max_col+1):
 
             cell=ws.cell(row=r,column=c)
 
             cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
             cell.border=border
 
-            if r%2==1:
+            if r%2==0:
                 cell.fill=gray_fill
             else:
                 cell.fill=white_fill
@@ -235,7 +214,7 @@ def format_excel(file,colors):
 
         for c in range(1,max_col+30):
 
-            if r>=2 and c>=2 and r<=max_row and c<=max_col:
+            if r>=1 and c>=1 and r<=max_row and c<=max_col:
                 continue
 
             cell=ws.cell(row=r,column=c)
@@ -246,9 +225,7 @@ def format_excel(file,colors):
     for chart in ws._charts:
 
         chart.anchor._from.col=max_col+3
-        chart.anchor._from.row=2
-
-    ws.column_dimensions['A'].width=2
+        chart.anchor._from.row=1
 
     output="formatted.xlsx"
 
